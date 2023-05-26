@@ -247,30 +247,65 @@ db.attendance.insertMany(
 db.topics.insertMany([
     {
       "mentor_id": 1,
+      "topic_id":1,
       "topic_name": "HTML",
       "session_date": "2020-09-05"
     },
     {
       "mentor_id": 1,
+      "topic_id":2,
       "topic_name": "CSS",
       "session_date": "2020-10-10"
     },
     {
       "mentor_id": 2,
+      "topic_id":3,
       "topic_name": "Bootstrap",
       "session_date": "2020-10-15"
     },
     {
       "mentor_id": 2,
+      "topic_id":4,
       "topic_name": "JavaScript",
       "session_date": "2020-10-22"
     },
     {
       "mentor_id": 3,
+      "topic_id":5,
       "topic_name": "React.js",
       "session_date": "2020-10-28"
     }
   ])
+
+//plain task
+db.plain_tasks.insertMany([
+  {
+    "task_id": 1,
+    "task_name": "Task 1",
+    "submission_date": "2020-09-20"
+  },
+  {
+    "task_id": 2,
+    "task_name": "Task 2",
+    "submission_date": "2020-10-05"
+  },
+  {
+    "task_id": 3,
+    "task_name": "Task 3",
+    "submission_date": "2020-10-10"
+  },
+  {
+    "task_id": 4,
+    "task_name": "Task 4",
+    "submission_date": "2020-10-15"
+  },
+  {
+    "task_id": 5,
+    "task_name": "Task 5",
+    "submission_date": "2020-10-20"
+  }
+]);
+
 
 // insert task
 db.tasks.insertMany(
@@ -575,31 +610,52 @@ db.mentors.insertMany(
 
 // Find all the topics and tasks which are thought in the month of October
 db.topics.aggregate([
-    {
-      $match: {
-        session_date: {
-          $gte: '2020-10-01',
-          $lte: '2020-10-31'
-        }
-      }
-    },
-    {
-      $lookup: {
-        from: "tasks",
-        localField: "session_date",
-        foreignField: "submission_date",
-        as: "tasks"
+  {
+    $match: {
+      session_date: {
+        $gte: "2020-10-01",
+        $lte: "2020-10-31"
       }
     }
-  ])
+  },
+  {
+    $lookup: {
+      from: "plain_tasks",
+      localField: "topic_id",
+      foreignField: "task_id",
+      as: "tasks"
+    }
+  },
+  {
+    $project: {
+      _id: 0,
+      topic_name: 1,
+      session_date: 1,
+      tasks: {
+        $filter: {
+          input: "$tasks",
+          as: "task",
+          cond: {
+            $and: [
+              { $gte: ["$$task.submission_date", "2020-10-01"] },
+              { $lte: ["$$task.submission_date", "2020-10-31"] }
+            ]
+          }
+        }
+      }
+    }
+  }
+]);
+
+
   
   
 
 // Find all the company drives which appeared between 15 oct-2020 and 31-oct-2020
 db.company_drives.find({
     date: {
-      $gte: ISODate("2020-10-15"),
-      $lte: ISODate("2020-10-31")
+      $gte: "2020-10-15",
+      $lte: "2020-10-31"
     }
   })
   
@@ -607,44 +663,72 @@ db.company_drives.find({
 
 // Find all the company drives and students who are appeared for the placement.
 db.company_drives.aggregate([
-    {
-      $lookup: {
-        from: "users",
-        localField: "user_id",
-        foreignField: "user_id",
-        as: "student_info"
+  {
+    $lookup: {
+      from: "users",
+      localField: "user_id",
+      foreignField: "user_id",
+      as: "user_info"
+    }
+  },
+  {
+    $match: {
+      $or: [
+        { user_appeared: true },
+        { company_appeared: true }
+      ]
+    }
+  },
+  {
+    $project: {
+      company_id: 1,
+      company_name: 1,
+      date: 1,
+      user_info: {
+        $cond: {
+          if: { $eq: ["$user_appeared", true] },
+          then: { $arrayElemAt: ["$user_info", 0] },
+          else: null
+        }
       }
     }
-  ])
+  }
+]);
+
   
+
+  db.company_drives.find({company_appeared:true})
 
 // Find the number of problems solved by the user in codekata
 db.codekata.aggregate([
-    {
-      $group: {
-        _id: "$user_id",
-        problems_solved: { $sum: { $cond: ["$solved", 1, 0] } }
-      }
-    },
-    {
-      $lookup: {
-        from: "users",
-        localField: "_id",
-        foreignField: "user_id",
-        as: "user"
-      }
-    },
-    {
-      $unwind: "$user"
-    },
-    {
-      $project: {
-        _id: 0,
-        user_name: "$user.name",
-        problems_solved: 1
-      }
+  {
+    $group: {
+      _id: "$user_id",
+      problems_solved: { $sum: { $cond: ["$solved", 1, 0] } },
+      total_problems: { $sum: 1 } // field to count problems attempted
     }
-  ])
+  },
+  {
+    $lookup: {
+      from: "users",
+      localField: "_id",
+      foreignField: "user_id",
+      as: "user"
+    }
+  },
+  {
+    $unwind: "$user"
+  },
+  {
+    $project: {
+      _id: 0,
+      user_name: "$user.name",
+      problems_solved: 1,
+     total_problems: 1 // Include the field in the projected output
+    }
+  }
+]);
+
   
   
 
@@ -653,12 +737,69 @@ db.mentors.find({ mentee_count: { $gt: 15 } })
   
 
 // Find the number of users who are absent and task is not submitted  between 15 oct-2020 and 31-oct-2020
-db.attendance.find({
-    present: false,
-    session_date: {
-      $gte: "2020-10-15",
-      $lte: "2020-10-31"
+db.tasks.aggregate([
+  {
+    $match: {
+      submission_date: {
+        $gte: "2020-10-15",
+        $lte: "2020-10-31"
+      },
+      submited: false
     }
-  }).count()
+  },
+  {
+    $group: {
+      _id: "$user_id"
+    }
+  },
+  {
+    $group: {
+      _id: null,
+      task_not_submitted_count: { $sum: 1 }
+    }
+  },
+  {
+    $lookup: {
+      from: "attendance",
+      pipeline: [
+        {
+          $match: {
+            present: false,
+            session_date: {
+              $gte: "2020-10-15",
+              $lte: "2020-10-31"
+            }
+          }
+        },
+        {
+          $group: {
+            _id: "$user_id"
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            attendance_absent_count: { $sum: 1 }
+          }
+        },
+        {
+          $project: {
+            _id: 0,
+            attendance_absent_count: 1
+          }
+        }
+      ],
+      as: "attendance"
+    }
+  },
+  {
+    $project: {
+      _id: 0,
+      task_not_submitted_count: 1,
+      attendance_absent_count: { $arrayElemAt: ["$attendance.attendance_absent_count", 0] }
+    }
+  }
+]);
+
     
 
